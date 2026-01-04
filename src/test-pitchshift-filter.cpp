@@ -3,6 +3,9 @@
 #include <atomic>
 #include <vector>
 #include <algorithm>
+#include <cmath>
+
+#include "low-latency-pitch-shift.h"
 
 namespace {
 
@@ -18,12 +21,16 @@ constexpr uint32_t kExpectedSampleRate = 44100;
 
 struct TestPitchShiftFilter final {
 	obs_source_t *context = nullptr;
+
 	std::atomic<int> semitone{0};
+	std::atomic<bool> reset_requested{false};
+
+	bool warned_sample_rate = false;
+
+	LowLatencyPitchShift shifter[2];
 
 	std::vector<float> outbuf[2];
 	obs_audio_data out_audio = {};
-
-	bool warned_sample_rate = false;
 };
 
 static void *test_pitchshift_create(obs_data_t *settings, obs_source_t *source)
@@ -33,6 +40,10 @@ static void *test_pitchshift_create(obs_data_t *settings, obs_source_t *source)
 
 	const int s = (int)obs_data_get_int(settings, kSettingSemitone);
 	f->semitone.store(s, std::memory_order_relaxed);
+
+	for (auto &sh : f->shifter) {
+		sh.Prepare();
+	}
 
 	for (int ch = 0; ch < 2; ch++) {
 		f->outbuf[ch].reserve(4096);
@@ -47,6 +58,8 @@ static void test_pitchshift_update(void *data, obs_data_t *settings)
 
 	const int s = (int)obs_data_get_int(settings, kSettingSemitone);
 	f->semitone.store(s, std::memory_order_relaxed);
+
+	f->reset_requested.store(true, std::memory_order_release);
 }
 
 static void test_pitchshift_destroy(void *data)
@@ -80,6 +93,14 @@ static obs_audio_data *test_pitchshift_filter_audio(void *data, obs_audio_data *
 {
 	auto *f = static_cast<TestPitchShiftFilter *>(data);
 
+	// 無効化時は内部バッファを捨てて即バイパス
+	if (!obs_source_enabled(f->context)) {
+		for (auto &sh : f->shifter) {
+			sh.Reset();
+		}
+		return audio;
+	}
+
 	const uint32_t sr = audio_output_get_sample_rate(obs_get_audio());
 	if (sr != kExpectedSampleRate) {
 		if (!f->warned_sample_rate) {
@@ -96,8 +117,18 @@ static obs_audio_data *test_pitchshift_filter_audio(void *data, obs_audio_data *
 		return audio;
 	}
 
-	// semitone が 0 のときは従来通りバイパスでも良いが、
-	// ここでは検証のため、あえて outbuf にコピーして返しても良い。
+	const int semitone = f->semitone.load(std::memory_order_relaxed);
+	if (semitone == 0) {
+		return audio;
+	}
+
+	if (f->reset_requested.exchange(false, std::memory_order_acq_rel)) {
+		for (auto &sh : f->shifter) {
+			sh.Reset();
+		}
+	}
+
+	const double pitch_factor = std::pow(2.0, (double)semitone / 12.0);
 	const uint32_t frames = audio->frames;
 
 	for (int ch = 0; ch < 2; ch++) {
@@ -106,8 +137,7 @@ static obs_audio_data *test_pitchshift_filter_audio(void *data, obs_audio_data *
 		const float *in = reinterpret_cast<const float *>(audio->data[ch]);
 		float *out = f->outbuf[ch].data();
 
-		std::copy_n(in, frames, out);
-
+		f->shifter[ch].ProcessBlock(in, out, frames, pitch_factor);
 		f->out_audio.data[ch] = reinterpret_cast<uint8_t *>(out);
 	}
 
@@ -117,6 +147,7 @@ static obs_audio_data *test_pitchshift_filter_audio(void *data, obs_audio_data *
 
 	f->out_audio.frames = frames;
 	f->out_audio.timestamp = audio->timestamp;
+
 	return &f->out_audio;
 }
 
