@@ -37,3 +37,16 @@ endif()
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
+
+# ビルド直後に cmake --install を実行する (Windows 開発用)
+option(ENABLE_POST_BUILD_INSTALL "Run cmake --install after build" ON)
+
+if(WIN32 AND ENABLE_POST_BUILD_INSTALL)
+  add_custom_command(
+    TARGET ${CMAKE_PROJECT_NAME}
+    POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" --install "${CMAKE_BINARY_DIR}" --config "$<CONFIG>"
+    COMMENT "Installing OBS plugin (cmake --install)"
+    VERBATIM
+  )
+endif()
