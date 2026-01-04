@@ -16,7 +16,7 @@ add_library(${CMAKE_PROJECT_NAME} MODULE)
 # C++17 を要求する
 target_compile_features(${CMAKE_PROJECT_NAME} PRIVATE cxx_std_17)
 
-if(MSVC)
+if (MSVC)
   target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE /utf-8)
 endif()
 
@@ -42,24 +42,26 @@ if(ENABLE_QT)
 endif()
 
 # src/ と data/ を自動で拾う (追加のたびに CMakeLists.txt を編集しないため)
-file(
-  GLOB PLUGIN_SOURCES
-  CONFIGURE_DEPENDS
+file(GLOB PLUGIN_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 
-file(
-  GLOB_RECURSE PLUGIN_RESOURCES
-  CONFIGURE_DEPENDS
+file(GLOB_RECURSE PLUGIN_RESOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/data/*.effect"
   "${CMAKE_CURRENT_SOURCE_DIR}/data/locale/*.ini"
 )
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${PLUGIN_SOURCES} ${PLUGIN_RESOURCES})
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+  ${PLUGIN_SOURCES}
+  ${PLUGIN_RESOURCES}
+)
 
 # Solution Explorer のツリー表示を実ディレクトリに揃える
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${PLUGIN_SOURCES} ${PLUGIN_RESOURCES})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES
+  ${PLUGIN_SOURCES}
+  ${PLUGIN_RESOURCES}
+)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
