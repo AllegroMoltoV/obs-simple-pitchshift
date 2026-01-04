@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.28...3.30)
+﻿cmake_minimum_required(VERSION 3.28...3.30)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/common/bootstrap.cmake" NO_POLICY_SCOPE)
 
@@ -15,6 +15,10 @@ add_library(${CMAKE_PROJECT_NAME} MODULE)
 
 # C++17 を要求する
 target_compile_features(${CMAKE_PROJECT_NAME} PRIVATE cxx_std_17)
+
+if (MSVC)
+  target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE /utf-8)
+endif()
 
 find_package(libobs REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
