@@ -1,59 +1,131 @@
-# OBS Plugin Template
+# Test Pitch Shift (OBS Audio Filter Plugin)
 
-## Introduction
+OBS Studio 向けの **検証用ピッチシフト音声フィルタ**です。  
+標準プロパティ UI（Qt なし）で **半音スライダー（-12..+12）** を出し、`update`（UI スレッド）→ `filter_audio`（音声スレッド）の受け渡しや、`filter_audio` の **返り値バッファ寿命**など、OBS 音声フィルタ実装の土台を確認する目的で作っています。
 
-The plugin template is meant to be used as a starting point for OBS Studio plugin development. It includes:
+> 音質は優先しません。低遅延を優先し、クリックやアーティファクトは許容します。
 
-* Boilerplate plugin source code
-* A CMake project file
-* GitHub Actions workflows and repository actions
+---
 
-## Supported Build Environments
+## Features / できること
 
-| Platform  | Tool   |
-|-----------|--------|
-| Windows   | Visual Studio 17 2022 |
-| macOS     | XCode 16.0 |
-| Windows, macOS  | CMake 3.30.5 |
-| Ubuntu 24.04 | CMake 3.28.3 |
-| Ubuntu 24.04 | `ninja-build` |
-| Ubuntu 24.04 | `pkg-config`
-| Ubuntu 24.04 | `build-essential` |
+- 音声フィルタ「**検証用ピッチシフト / Test Pitch Shift**」を追加できる
+- プロパティで **半音（Semitone）** を `-12..+12` の範囲で変更できる
+- `update` と音声処理スレッドの受け渡しを **atomic** で行う例になっている
+- `filter_audio` が返す `obs_audio_data*` の **バッファ寿命**を満たす例になっている
 
-## Quick Start
+---
 
-An absolute bare-bones [Quick Start Guide](https://github.com/obsproject/obs-plugintemplate/wiki/Quick-Start-Guide) is available in the wiki.
+## Requirements / 動作環境
 
-## Documentation
+- Windows 11（x64）
+- OBS Studio 32.0.4（32 系）
+- サンプルレート: **44.1 kHz 固定**
+- チャンネル: **2ch 前提**
 
-All documentation can be found in the [Plugin Template Wiki](https://github.com/obsproject/obs-plugintemplate/wiki).
+---
 
-Suggested reading to get up and running:
+## Install / インストール（手動）
 
-* [Getting started](https://github.com/obsproject/obs-plugintemplate/wiki/Getting-Started)
-* [Build system requirements](https://github.com/obsproject/obs-plugintemplate/wiki/Build-System-Requirements)
-* [Build system options](https://github.com/obsproject/obs-plugintemplate/wiki/CMake-Build-System-Options)
+1. GitHub Releases から zip をダウンロードして展開します。
+2. 展開した **プラグインフォルダーごと**、次の場所へコピーします。
 
-## GitHub Actions & CI
+- `%PROGRAMDATA%\obs-studio\plugins`
 
-Default GitHub Actions workflows are available for the following repository actions:
+展開後のパス例:
 
-* `push`: Run for commits or tags pushed to `master` or `main` branches.
-* `pr-pull`: Run when a Pull Request has been pushed or synchronized.
-* `dispatch`: Run when triggered by the workflow dispatch in GitHub's user interface.
-* `build-project`: Builds the actual project and is triggered by other workflows.
-* `check-format`: Checks CMake and plugin source code formatting and is triggered by other workflows.
+- `%PROGRAMDATA%\obs-studio\plugins\test-pitchshift\bin\64bit\test-pitchshift.dll`
+- `%PROGRAMDATA%\obs-studio\plugins\test-pitchshift\data\locale\...`
 
-The workflows make use of GitHub repository actions (contained in `.github/actions`) and build scripts (contained in `.github/scripts`) which are not needed for local development, but might need to be adjusted if additional/different steps are required to build the plugin.
+3. OBS Studio を再起動します。
 
-### Retrieving build artifacts
+> すでに同名フォルダーが存在する場合（開発中の `cmake --install` 等で生成済み）は、一度削除してから展開してください。
 
-Successful builds on GitHub Actions will produce build artifacts that can be downloaded for testing. These artifacts are commonly simple archives and will not contain package installers or installation programs.
+---
 
-### Building a Release
+## Usage / 使い方
 
-To create a release, an appropriately named tag needs to be pushed to the `main`/`master` branch using semantic versioning (e.g., `12.3.4`, `23.4.5-beta2`). A draft release will be created on the associated repository with generated installer packages or installation programs attached as release artifacts.
+1. 任意の音声付きソースを選択
+2. 「フィルタ」→「音声フィルタ」で **検証用ピッチシフト / Test Pitch Shift** を追加
+3. プロパティの **半音（Semitone）** スライダーを操作
 
-## Signing and Notarizing on macOS
+---
 
-Basic concepts of codesigning and notarization on macOS are explained in the correspodning [Wiki article](https://github.com/obsproject/obs-plugintemplate/wiki/Codesigning-On-macOS) which has a specific section for the [GitHub Actions setup](https://github.com/obsproject/obs-plugintemplate/wiki/Codesigning-On-macOS#setting-up-code-signing-for-github-actions).
+## Notes / 注意点
+
+- OBS の音声設定が **44.1 kHz 以外**の場合は **バイパス**します。
+- **2ch 以外**の構成は想定外です（バイパスします）。
+- 検証目的のため、本番運用（重要な配信・収録）では十分にテストしてから使用してください。
+
+---
+
+## Build / ビルド（開発者向け）
+
+このリポジトリは `obs-plugintemplate` ベースです。  
+Windows + Visual Studio 2022 を前提とした開発フローになっています。
+
+### 1) Configure（CMake generate）
+
+```bash
+cmake --preset windows-x64-local
+````
+
+> preset 名は、あなたの環境で使っているものに合わせてください。
+
+### 2) Build
+
+生成された `build_x64/*.sln` を Visual Studio で開き、`Release` / `RelWithDebInfo` などでビルドします。
+
+### 3) Install（ローカル配置）
+
+`cmake --install` で OBS のプラグインフォルダー構造に従って出力できます。
+
+```bash
+cmake --install build_x64 --config Release
+```
+
+`--prefix dist` を付けると配布用にまとめられます。
+
+```bash
+cmake --install build_x64 --config Release --prefix dist
+```
+
+---
+
+## CMake formatting (CI) / gersemi について
+
+CI で CMake のフォーマットチェックに `gersemi` を使用しています。
+ローカルで整形してから push すると CI で詰まりにくくなります。
+
+インストール例（Python 環境がある場合）:
+
+```bash
+pip install --user gersemi
+```
+
+整形（in-place）:
+
+```bash
+gersemi -i CMakeLists.txt
+```
+
+---
+
+## Encoding / 文字コード（Windows）
+
+Windows 環境で日本語コメント等を安全に扱うため、MSVC では `/utf-8` を付ける想定です。
+また、`.editorconfig` で `charset = utf-8-bom` とし、ファイル保存時の事故を避けます。
+
+---
+
+## License / ライセンス
+
+OBS Studio の `libobs` を利用するプラグインは、`obs-plugintemplate` の配布ガイドで **GPL の combined work 扱い**になる可能性が説明されています。
+バイナリ配布を行う場合、受け取り手が対応する **ソースコードへ到達できる状態**を用意してください。
+
+---
+
+## Links
+
+* OBS Plugin Template: [https://github.com/obsproject/obs-plugintemplate](https://github.com/obsproject/obs-plugintemplate)
+* OBS Docs（Properties / Sources API）: [https://docs.obsproject.com/](https://docs.obsproject.com/)
