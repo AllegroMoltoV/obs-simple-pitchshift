@@ -88,24 +88,6 @@ cmake --install build_x64 --config Release --prefix dist
 
 ---
 
-## CMake formatting (CI) / gersemi について
-
-CI で CMake のフォーマットチェックに `gersemi` を使用しています。
-
-```bash
-pip install --user gersemi
-gersemi -i CMakeLists.txt
-```
-
----
-
-## License / ライセンス
-
-OBS Studio の `libobs` を利用するプラグインは、`obs-plugintemplate` の配布ガイドで **GPL の combined work 扱い**になる可能性が説明されています。
-バイナリ配布を行う場合、受け取り手が対応する **ソースコードへ到達できる状態**を用意してください。
-
----
-
 ## Links
 
 * OBS Plugin Template: [https://github.com/obsproject/obs-plugintemplate](https://github.com/obsproject/obs-plugintemplate)
