@@ -3,21 +3,62 @@
 #include <atomic>
 #include <vector>
 #include <algorithm>
-#include <cmath>
 
 #include "low-latency-pitch-shift.h"
 
 namespace {
 
-constexpr const char *kFilterId = "test_pitchshift_filter";
-constexpr const char *kTextFilterName = "TestPitchShiftFilterName";
-constexpr const char *kPropSemitone = "TestPitchShiftSemitone";
+constexpr const char *kFilterId = "simple_pitchshift_filter";
+constexpr const char *kTextFilterName = "SimplePitchShiftFilterName";
+constexpr const char *kPropSemitone = "SimplePitchShiftSemitone";
 constexpr const char *kSettingSemitone = "semitone";
 
 constexpr int kSemitoneMin = -12;
 constexpr int kSemitoneMax = 12;
 
-constexpr uint32_t kExpectedSampleRate = 44100;
+// 対応サンプルレート
+constexpr uint32_t kSampleRate44100 = 44100;
+constexpr uint32_t kSampleRate48000 = 48000;
+
+// ピッチファクターのルックアップテーブル (semitone -12 ~ +12)
+// pitch_factor = 2^(semitone/12)
+// インデックス = semitone + 12 (0 ~ 24)
+constexpr double kPitchFactorTable[25] = {
+	0.5,                  // -12
+	0.5297315471796477,   // -11
+	0.5612310241546865,   // -10
+	0.5946035575013605,   // -9
+	0.6299605249474366,   // -8
+	0.6674199270850172,   // -7
+	0.7071067811865476,   // -6
+	0.7491535384383408,   // -5
+	0.7937005259840998,   // -4
+	0.8408964152537145,   // -3
+	0.8908987181403393,   // -2
+	0.9438743126816935,   // -1
+	1.0,                  // 0
+	1.0594630943592953,   // +1
+	1.122462048309373,    // +2
+	1.189207115002721,    // +3
+	1.2599210498948732,   // +4
+	1.3348398541700344,   // +5
+	1.4142135623730951,   // +6
+	1.4983070768766815,   // +7
+	1.5874010519681994,   // +8
+	1.681792830507429,    // +9
+	1.7817974362806785,   // +10
+	1.887748625363387,    // +11
+	2.0                   // +12
+};
+
+inline double GetPitchFactor(int semitone)
+{
+	const int index = semitone + 12;
+	if (index < 0 || index > 24) {
+		return 1.0;
+	}
+	return kPitchFactorTable[index];
+}
 
 struct TestPitchShiftFilter final {
 	obs_source_t *context = nullptr;
@@ -26,6 +67,7 @@ struct TestPitchShiftFilter final {
 	std::atomic<bool> reset_requested{false};
 
 	bool warned_sample_rate = false;
+	uint32_t current_sample_rate = 0;
 
 	LowLatencyPitchShift shifter[2];
 
@@ -41,9 +83,7 @@ static void *test_pitchshift_create(obs_data_t *settings, obs_source_t *source)
 	const int s = (int)obs_data_get_int(settings, kSettingSemitone);
 	f->semitone.store(s, std::memory_order_relaxed);
 
-	for (auto &sh : f->shifter) {
-		sh.Prepare();
-	}
+	// shifter の Prepare() は filter_audio でサンプルレートが確定してから呼ぶ
 
 	for (int ch = 0; ch < 2; ch++) {
 		f->outbuf[ch].reserve(4096);
@@ -102,11 +142,13 @@ static obs_audio_data *test_pitchshift_filter_audio(void *data, obs_audio_data *
 	}
 
 	const uint32_t sr = audio_output_get_sample_rate(obs_get_audio());
-	if (sr != kExpectedSampleRate) {
+
+	// 44.1 kHz と 48 kHz のみ対応
+	if (sr != kSampleRate44100 && sr != kSampleRate48000) {
 		if (!f->warned_sample_rate) {
 			obs_log(LOG_WARNING,
-				"[test_pitchshift_filter] sample rate must be %u Hz, but actual is %u Hz. bypassing.",
-				kExpectedSampleRate, sr);
+				"[simple_pitchshift_filter] sample rate must be %u or %u Hz, but actual is %u Hz. bypassing.",
+				kSampleRate44100, kSampleRate48000, sr);
 			f->warned_sample_rate = true;
 		}
 		return audio;
@@ -122,13 +164,22 @@ static obs_audio_data *test_pitchshift_filter_audio(void *data, obs_audio_data *
 		return audio;
 	}
 
+	// サンプルレートが変わった場合、または初回の場合は shifter を再初期化
+	if (f->current_sample_rate != sr) {
+		for (auto &sh : f->shifter) {
+			sh.Prepare(sr);
+		}
+		f->current_sample_rate = sr;
+	}
+
 	if (f->reset_requested.exchange(false, std::memory_order_acq_rel)) {
 		for (auto &sh : f->shifter) {
 			sh.Reset();
 		}
 	}
 
-	const double pitch_factor = std::pow(2.0, (double)semitone / 12.0);
+	// ルックアップテーブルからピッチファクターを取得
+	const double pitch_factor = GetPitchFactor(semitone);
 	const uint32_t frames = audio->frames;
 
 	for (int ch = 0; ch < 2; ch++) {
@@ -153,7 +204,7 @@ static obs_audio_data *test_pitchshift_filter_audio(void *data, obs_audio_data *
 
 } // namespace
 
-void register_test_pitchshift_filter(void)
+void register_simple_pitchshift_filter(void)
 {
 	obs_source_info info = {};
 	info.id = kFilterId;

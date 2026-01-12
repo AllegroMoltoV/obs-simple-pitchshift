@@ -36,8 +36,8 @@
             "bundleId": "com.example.plugintemplate-for-obs"
         }
     },
-    "name": "test-pitchshift",
-    "displayName": "検証用ピッチシフト",
+    "name": "simple-pitchshift",
+    "displayName": "シンプルピッチシフト / Simple Pitch Shift",
     "version": "0.1.0",
     "author": "AllegroMoltoV",
     "website": "https://www.allegromoltov.jp",

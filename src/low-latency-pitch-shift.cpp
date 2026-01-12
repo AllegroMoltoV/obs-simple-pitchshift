@@ -5,10 +5,8 @@
 
 namespace {
 
-// レイテンシ優先パラメータ (44.1 kHz 前提での目安は本文参照)
-constexpr int kBaseDelaySamples = 256;
-constexpr int kRangeSamples = 128;
-constexpr int kDelayLineLength = 1024;
+// デフォルトのディレイラインサイズ (最大サンプルレート対応)
+constexpr int kDelayLineLength = 2048;
 
 inline double clamp_double(double v, double lo, double hi)
 {
@@ -30,8 +28,20 @@ inline float tri(double phase01)
 
 } // namespace
 
-void LowLatencyPitchShift::Prepare()
+void LowLatencyPitchShift::Prepare(uint32_t sample_rate)
 {
+	// サンプルレートに応じてディレイパラメータを設定
+	// 44.1 kHz: base=256, range=128 (約8.7ms遅延)
+	// 48 kHz:   base=279, range=139 (約8.7ms遅延、同等のレイテンシを維持)
+	if (sample_rate == 48000) {
+		base_delay_samples_ = 279;
+		range_samples_ = 139;
+	} else {
+		// 44100 Hz (デフォルト)
+		base_delay_samples_ = 256;
+		range_samples_ = 128;
+	}
+
 	buf_.assign(kDelayLineLength, 0.0f);
 	Reset();
 }
@@ -48,7 +58,7 @@ void LowLatencyPitchShift::ProcessBlock(const float *in, float *out, uint32_t fr
 	// pitch_factor = 2^(semitone/12)
 	// 変調ディレイ方式の近似で、低遅延を優先する。
 	const double slope = 1.0 - pitch_factor; // D'[n] (samples / sample)
-	const double phase_step = std::fabs(slope) / (double)kRangeSamples;
+	const double phase_step = std::fabs(slope) / (double)range_samples_;
 
 	for (uint32_t i = 0; i < frames; i++) {
 		buf_[write_pos_] = in[i];
@@ -76,9 +86,9 @@ float LowLatencyPitchShift::ReadTap(double phase01, double pitch_factor) const
 
 	double delay = 0.0;
 	if (pitch_factor >= 1.0) {
-		delay = (double)kBaseDelaySamples + (double)kRangeSamples * (1.0 - f);
+		delay = (double)base_delay_samples_ + (double)range_samples_ * (1.0 - f);
 	} else {
-		delay = (double)kBaseDelaySamples + (double)kRangeSamples * f;
+		delay = (double)base_delay_samples_ + (double)range_samples_ * f;
 	}
 
 	const double len = (double)buf_.size();
