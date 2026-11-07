@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -145,8 +146,11 @@ struct Fixture {
 	}
 	~Fixture()
 	{
-		obs_source_remove_audio_capture_callback(source, capture, &output);
-		obs_source_filter_remove(source, filter);
+		if (source) {
+			obs_source_remove_audio_capture_callback(source, capture, &output);
+			if (filter)
+				obs_source_filter_remove(source, filter);
+		}
 		obs_source_release(filter);
 		obs_source_release(source);
 	}
@@ -264,12 +268,186 @@ double frequency(const Wave &w)
 	}
 	return crossings.size() > 1 ? (crossings.size() - 1) * w.rate / (crossings.back() - crossings.front()) : 0;
 }
+struct MixCapture {
+	Wave wave;
+	std::mutex mutex;
+	std::vector<std::array<uint64_t, 3>> packets;
+	bool finite = true, continuous = true;
+};
+void mix_capture(void *opaque, size_t, audio_data *a)
+{
+	auto &c = *static_cast<MixCapture *>(opaque);
+	std::lock_guard<std::mutex> lock(c.mutex);
+	if (!c.packets.empty()) {
+		auto last = c.packets.back();
+		int64_t error = int64_t(a->timestamp - last[0]) - int64_t(last[2] * 1000000000ULL / c.wave.rate);
+		c.continuous &= std::abs(error) <= 1;
+	}
+	c.packets.push_back({a->timestamp, os_gettime_ns(), a->frames});
+	for (uint32_t i = 0; i < a->frames; ++i)
+		for (int ch = 0; ch < 2; ++ch) {
+			float x = reinterpret_cast<const float *>(a->data[ch])[i];
+			c.finite &= std::isfinite(x);
+			c.wave.samples.push_back(x);
+		}
+}
+bool final_mix(const Wave &input, const std::filesystem::path &out, bool restore, int semitone, const char *data,
+	       const char *graphics)
+{
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
+	const std::string data_path = std::string(data) + "/";
+	obs_add_data_path(data_path.c_str());
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+	obs_video_info vi{};
+	vi.graphics_module = graphics;
+	vi.fps_num = 30;
+	vi.fps_den = 1;
+	vi.base_width = vi.output_width = 64;
+	vi.base_height = vi.output_height = 64;
+	vi.output_format = VIDEO_FORMAT_RGBA;
+	vi.colorspace = VIDEO_CS_709;
+	vi.range = VIDEO_RANGE_FULL;
+	vi.scale_type = OBS_SCALE_BILINEAR;
+	if (obs_reset_video(&vi) != OBS_VIDEO_SUCCESS)
+		throw std::runtime_error("video clock init failed");
+	Fixture f(input.rate, semitone);
+	const auto settings_path = (out / "saved-source.json").string();
+	if (restore) {
+		obs_source_remove_audio_capture_callback(f.source, capture, &f.output);
+		obs_source_filter_remove(f.source, f.filter);
+		obs_source_release(f.filter);
+		f.filter = nullptr;
+		obs_source_release(f.source);
+		auto *saved = obs_data_create_from_json_file(settings_path.c_str());
+		f.source = saved ? obs_load_source(saved) : nullptr;
+		obs_data_release(saved);
+		if (!f.source)
+			throw std::runtime_error("saved source load failed");
+		f.filter = obs_source_get_filter_by_name(f.source, "pitch");
+		if (!f.filter)
+			throw std::runtime_error("saved filter missing");
+		obs_source_add_audio_capture_callback(f.source, capture, &f.output);
+	} else {
+		auto *saved = obs_save_source(f.source);
+		bool ok = obs_data_save_json(saved, settings_path.c_str());
+		obs_data_release(saved);
+		if (!ok)
+			throw std::runtime_error("settings JSON save failed");
+	}
+	auto *settings = obs_source_get_settings(f.filter);
+	bool retained = obs_data_get_int(settings, "semitone") == semitone;
+	obs_data_release(settings);
+	obs_source_set_monitoring_type(f.source, OBS_MONITORING_TYPE_NONE);
+	obs_source_set_audio_mixers(f.source, 1);
+	obs_set_output_source(0, f.source);
+	MixCapture mixed;
+	mixed.wave.rate = input.rate;
+	audio_convert_info conversion{};
+	conversion.samples_per_sec = input.rate;
+	conversion.speakers = SPEAKERS_STEREO;
+	conversion.format = AUDIO_FORMAT_FLOAT_PLANAR;
+	obs_add_raw_audio_callback(0, &conversion, mix_capture, &mixed);
+	// Lead and tail silence isolate source onset and allow the final mix to drain.
+	std::vector<float> samples(input.rate, 0);
+	samples.insert(samples.end(), input.samples.begin(), input.samples.end());
+	samples.resize(samples.size() + input.rate * 2, 0);
+	std::ofstream sent(out / (restore ? "restore-input.csv" : "save-input.csv"));
+	sent << "frame,timestamp_ns,submit_wall_ns,frames\n";
+	f.base = os_gettime_ns();
+	const uint32_t block = input.rate / 100;
+	std::array<std::vector<float>, 2> planar;
+	uint64_t input_onset_wall = 0;
+	for (size_t offset = 0; offset < samples.size() / 2; offset += block) {
+		uint32_t n = uint32_t(std::min<size_t>(block, samples.size() / 2 - offset));
+		for (int ch = 0; ch < 2; ++ch) {
+			planar[ch].resize(n);
+			for (uint32_t i = 0; i < n; ++i)
+				planar[ch][i] = samples[2 * (offset + i) + ch];
+		}
+		obs_source_audio a{};
+		a.frames = n;
+		a.samples_per_sec = input.rate;
+		a.speakers = SPEAKERS_STEREO;
+		a.format = AUDIO_FORMAT_FLOAT_PLANAR;
+		a.timestamp = f.base + offset * 1000000000ULL / input.rate;
+		os_sleepto_ns(a.timestamp + uint64_t(n) * 1000000000ULL / input.rate);
+		f.output.input_timestamp = a.timestamp;
+		for (int ch = 0; ch < 2; ++ch)
+			a.data[ch] = reinterpret_cast<const uint8_t *>(planar[ch].data());
+		uint64_t wall = os_gettime_ns();
+		if (!input_onset_wall && (peak(planar[0]) > 1e-7 || peak(planar[1]) > 1e-7))
+			input_onset_wall = wall;
+		sent << offset << ',' << a.timestamp << ',' << wall << ',' << n << '\n';
+		obs_source_output_audio(f.source, &a);
+	}
+	os_sleep_ms(300);
+	obs_remove_raw_audio_callback(0, mix_capture, &mixed);
+	obs_set_output_source(0, nullptr);
+	std::lock_guard<std::mutex> lock(mixed.mutex);
+	auto onset = [](const std::vector<float> &s) {
+		size_t i = 0;
+		while (i < s.size() / 2 && std::abs(s[i * 2]) <= 1e-7 && std::abs(s[i * 2 + 1]) <= 1e-7)
+			++i;
+		return i;
+	};
+	size_t source_onset = onset(f.output.wave.samples), mix_onset = onset(mixed.wave.samples);
+	size_t compared = 0;
+	double max_error = 0, squared_error = 0;
+	for (size_t a = source_onset * 2, b = mix_onset * 2;
+	     a < f.output.wave.samples.size() && b < mixed.wave.samples.size(); ++a, ++b) {
+		double error = std::abs(double(f.output.wave.samples[a]) - mixed.wave.samples[b]);
+		max_error = std::max(max_error, error);
+		squared_error += error * error;
+		++compared;
+	}
+	uint64_t onset_wall = 0, onset_timestamp = 0;
+	size_t frame = 0;
+	std::ofstream packets(out / (restore ? "restore-mix.csv" : "save-mix.csv"));
+	packets << "frame,timestamp_ns,receive_wall_ns,frames\n";
+	for (auto p : mixed.packets) {
+		packets << frame << ',' << p[0] << ',' << p[1] << ',' << p[2] << '\n';
+		if (mix_onset >= frame && mix_onset < frame + p[2]) {
+			onset_wall = p[1];
+			onset_timestamp = p[0] + (mix_onset - frame) * 1000000000ULL / input.rate;
+		}
+		frame += size_t(p[2]);
+	}
+	bool passed = retained && mixed.finite && mixed.continuous && f.output.timestamps &&
+		      rms(mixed.wave.samples) > 0 && compared >= input.samples.size() && max_error < 1e-5;
+	const std::string prefix = restore ? "restore" : "save";
+	write_wave(out / (prefix + "-final-mix.wav"), mixed.wave);
+	write_wave(out / (prefix + "-filter-output.wav"), f.output.wave);
+	std::ofstream report(out / (prefix + "-result.json"));
+	report << "{\"passed\":" << (passed ? "true" : "false") << ",\"rate\":" << input.rate
+	       << ",\"semitone\":" << semitone << ",\"restored_from_disk\":" << restore
+	       << ",\"settings_retained\":" << retained << ",\"finite\":" << mixed.finite
+	       << ",\"mix_timestamps_continuous\":" << mixed.continuous << ",\"mix_packets\":" << mixed.packets.size()
+	       << ",\"mix_frames\":" << mixed.wave.samples.size() / 2 << ",\"rms\":" << rms(mixed.wave.samples)
+	       << ",\"compared_samples\":" << compared << ",\"max_pcm_error\":" << max_error
+	       << ",\"pcm_rmse\":" << std::sqrt(squared_error / std::max<size_t>(1, compared))
+	       << ",\"filter_timestamp_subtraction_ns\":" << f.output.delay
+	       << ",\"source_onset_frame\":" << source_onset << ",\"mix_onset_frame\":" << mix_onset
+	       << ",\"input_onset_submit_wall_ns\":" << input_onset_wall
+	       << ",\"mix_onset_receive_wall_ns\":" << onset_wall
+	       << ",\"onset_block_wall_delta_ns\":" << int64_t(onset_wall - input_onset_wall)
+	       << ",\"mix_onset_timestamp_ns\":" << onset_timestamp << ",\"filter_onset_timestamp_ns\":"
+	       << f.base + source_onset * 1000000000ULL / input.rate - f.output.delay
+	       << ",\"note\":\"Wall delta is first active input block submission to first active final-mix callback; includes block quantization and OBS buffering, excludes audio device. No video content or AV sync assertion.\"}\n";
+	return passed;
+}
 } // namespace
 int main(int argc, char **argv)
 {
-	if (argc != 5 && !(argc == 6 && std::strcmp(argv[5], "--transitions-only") == 0)) {
+	bool mix_mode = argc == 9 && (std::strcmp(argv[5], "--final-mix-save") == 0 ||
+				      std::strcmp(argv[5], "--final-mix-restore") == 0);
+	if (!mix_mode && argc != 5 && !(argc == 6 && std::strcmp(argv[5], "--transitions-only") == 0)) {
 		std::cerr
-			<< "Usage: pitch-obs-probe plugin.dll plugin-data input-f32-stereo.wav output-directory [--transitions-only]\n";
+			<< "Usage: pitch-obs-probe plugin.dll plugin-data input-f32-stereo.wav output-directory [--transitions-only | --final-mix-save SEMITONE LIBOBS_DATA GRAPHICS_DLL | --final-mix-restore SEMITONE LIBOBS_DATA GRAPHICS_DLL]\n";
 		return 2;
 	}
 	bool started = false;
@@ -304,6 +482,12 @@ int main(int argc, char **argv)
 		for (size_t i = 0; obs_enum_filter_types(i, &id); ++i)
 			count += std::strcmp(id, "simple_pitchshift_filter") == 0;
 		bool passed = count == 1;
+		if (mix_mode) {
+			passed &= final_mix(input, out, std::strcmp(argv[5], "--final-mix-restore") == 0,
+					    std::stoi(argv[6]), argv[7], argv[8]);
+			obs_shutdown();
+			return passed ? 0 : 1;
+		}
 		std::ofstream report(out / "result.json");
 		report << "{\"obs\":\"" << obs_get_version_string() << "\",\"rate\":" << input.rate
 		       << ",\"registrations\":" << count << ",\"cases\":[";
