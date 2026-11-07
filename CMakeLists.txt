@@ -11,17 +11,34 @@ include(compilerconfig)
 include(defaults)
 include(helpers)
 
+include(FetchContent)
+FetchContent_Declare(
+  signalsmith-linear
+  SYSTEM
+  GIT_REPOSITORY https://github.com/Signalsmith-Audio/linear.git
+  GIT_TAG 7bb1c8f36794d6980080ce817c91f8da8fe56a66
+  GIT_SUBMODULES ""
+)
+FetchContent_Declare(
+  signalsmith-stretch
+  SYSTEM
+  GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
+  GIT_TAG 88061fd4eda56a2353c5d65c74aa3f4ccf76f9da
+  GIT_SUBMODULES ""
+)
+FetchContent_MakeAvailable(signalsmith-linear signalsmith-stretch)
+
 add_library(${CMAKE_PROJECT_NAME} MODULE)
 
 # C++17 を要求する
 target_compile_features(${CMAKE_PROJECT_NAME} PRIVATE cxx_std_17)
 
 if(MSVC)
-  target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE /utf-8)
+  target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE /utf-8 /bigobj)
 endif()
 
 find_package(libobs REQUIRED)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs signalsmith-stretch)
 
 if(ENABLE_FRONTEND_API)
   find_package(obs-frontend-api REQUIRED)
@@ -65,7 +82,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${PLUGIN_SOURCES} ${PLUGIN
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
 # ビルド直後に cmake --install を実行する (Windows 開発用)
-option(ENABLE_POST_BUILD_INSTALL "Run cmake --install after build" ON)
+option(ENABLE_POST_BUILD_INSTALL "Run cmake --install after build" OFF)
 
 if(WIN32 AND ENABLE_POST_BUILD_INSTALL)
   add_custom_command(
@@ -75,4 +92,14 @@ if(WIN32 AND ENABLE_POST_BUILD_INSTALL)
     COMMENT "Installing OBS plugin (cmake --install)"
     VERBATIM
   )
+endif()
+# The isolated libobs probe has no install rule and never opens an audio device.
+option(ENABLE_PITCH_OBS_PROBE "Build the isolated libobs audio integration probe" OFF)
+if(ENABLE_PITCH_OBS_PROBE)
+  add_executable(pitch-obs-probe tests/pitch-obs-probe.cpp)
+  target_compile_features(pitch-obs-probe PRIVATE cxx_std_17)
+  target_link_libraries(pitch-obs-probe PRIVATE OBS::libobs)
+  if(MSVC)
+    target_compile_options(pitch-obs-probe PRIVATE /utf-8)
+  endif()
 endif()
