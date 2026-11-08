@@ -573,8 +573,8 @@ bool settings_cases(const Wave &input, const std::filesystem::path &out, std::os
 		f.send(input.samples);
 		auto *settings = obs_source_get_settings(f.filter);
 		bool read = obs_data_get_double(settings, "semitone") == 3 &&
-			    obs_data_get_int(settings, "window_ms") == 40 && obs_data_get_double(settings, "formant") == 0 &&
-			    obs_data_get_double(settings, "gain") == 0;
+			    obs_data_get_int(settings, "window_ms") == 40 &&
+			    obs_data_get_double(settings, "formant") == 0 && obs_data_get_double(settings, "gain") == 0;
 		obs_data_release(settings);
 		bool timing = f.output.timestamps && f.output.delay == 40 * ms;
 		emit("v100_integer_semitone_settings", f.output.finite && read && timing,
