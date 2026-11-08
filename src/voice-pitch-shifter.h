@@ -2,33 +2,53 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <signalsmith-stretch/signalsmith-stretch.h>
 
 class VoicePitchShifter {
 public:
+	static constexpr std::array<int, 3> kWindowMs{10, 20, 40};
+	static constexpr int kDefaultWindowMs = 40;
+
 	VoicePitchShifter()
 	{
-		prepare(at44100, 44100);
-		prepare(at48000, 48000);
+		for (size_t w = 0; w < kWindowMs.size(); ++w) {
+			prepare(at44100[w], 44100, kWindowMs[w]);
+			prepare(at48000[w], 48000, kWindowMs[w]);
+		}
 	}
 
 	void reset() { resetPending = true; }
 
-	uint32_t process(float *left, float *right, uint32_t frames, uint32_t rate, int semitones)
+	// Returns the DSP latency in samples, or 0 when the audio passes through unchanged.
+	uint32_t process(float *left, float *right, uint32_t frames, uint32_t rate, int windowMs, float semitones,
+			 float formantSemitones)
 	{
-		if ((rate != 44100 && rate != 48000) || semitones == 0) {
+		semitones = std::clamp(semitones, -12.0f, 12.0f);
+		formantSemitones = std::clamp(formantSemitones, -12.0f, 12.0f);
+		if ((rate != 44100 && rate != 48000) || (semitones == 0.0f && formantSemitones == 0.0f)) {
 			resetPending = true;
 			return 0;
 		}
-		auto &stretch = rate == 44100 ? at44100 : at48000;
-		semitones = std::clamp(semitones, -12, 12);
-		if (resetPending || rate != previousRate || semitones != previousSemitones) {
+		const size_t window = windowIndex(windowMs);
+		auto &stretch = rate == 44100 ? at44100[window] : at48000[window];
+		// Only a change of processor or bypass history clears audio; pitch and formant follow sliders without gaps.
+		if (resetPending || rate != previousRate || window != previousWindow) {
 			stretch.reset();
-			stretch.setTransposeSemitones(float(semitones));
 			previousRate = rate;
-			previousSemitones = semitones;
+			previousWindow = window;
 			resetPending = false;
+			previousSemitones = semitones + 1.0f;
+			previousFormant = formantSemitones + 1.0f;
+		}
+		if (semitones != previousSemitones) {
+			stretch.setTransposeSemitones(semitones);
+			previousSemitones = semitones;
+		}
+		if (formantSemitones != previousFormant) {
+			stretch.setFormantSemitones(formantSemitones, true);
+			previousFormant = formantSemitones;
 		}
 		// Scratch capacity is a processing chunk, not a limit on OBS input frames.
 		for (uint32_t offset = 0; offset < frames;) {
@@ -43,19 +63,34 @@ public:
 		return uint32_t(stretch.inputLatency() + stretch.outputLatency());
 	}
 
+	static int normalizeWindowMs(int windowMs) { return kWindowMs[windowIndex(windowMs)]; }
+
 private:
-	static void prepare(signalsmith::stretch::SignalsmithStretch<float> &stretch, uint32_t rate)
+	using Stretch = signalsmith::stretch::SignalsmithStretch<float>;
+
+	static size_t windowIndex(int windowMs)
 	{
-		stretch.configure(2, int(rate * 40 / 1000), int(rate * 10 / 1000), false);
+		for (size_t w = 0; w < kWindowMs.size(); ++w)
+			if (kWindowMs[w] == windowMs)
+				return w;
+		return windowIndex(kDefaultWindowMs);
+	}
+
+	static void prepare(Stretch &stretch, uint32_t rate, int windowMs)
+	{
+		// Interval stays at a quarter of the window, the ratio adopted for v1.0.0.
+		stretch.configure(2, int(rate * windowMs / 1000), int(rate * windowMs / 4000), false);
 		stretch.setFormantFactor(1, true);
 		stretch.setFormantBase(180.0f / float(rate));
 	}
 
-	// Prepare both supported rates before audio callbacks; rate changes do not allocate.
-	signalsmith::stretch::SignalsmithStretch<float> at44100;
-	signalsmith::stretch::SignalsmithStretch<float> at48000;
+	// Prepare every supported rate and window before audio callbacks; switching does not allocate.
+	std::array<Stretch, kWindowMs.size()> at44100;
+	std::array<Stretch, kWindowMs.size()> at48000;
 	std::array<std::array<float, 1024>, 2> scratch{};
 	uint32_t previousRate = 0;
-	int previousSemitones = 0;
+	size_t previousWindow = 0;
+	float previousSemitones = 0.0f;
+	float previousFormant = 0.0f;
 	bool resetPending = true;
 };
