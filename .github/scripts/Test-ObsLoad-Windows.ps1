@@ -98,7 +98,7 @@ $PreviousPhase = $env:PITCH_INSTALL_PHASE
 $Process = $null
 try {
     foreach ($Stage in @('fresh', 'old-setup', 'upgrade')) {
-        $Phase = switch ($Stage) { 'fresh' { 'setup' }; 'old-setup' { 'setup' }; 'upgrade' { 'restore' } }
+        $Phase = switch ($Stage) { 'fresh' { 'setup' }; 'old-setup' { 'legacy-setup' }; 'upgrade' { 'restore' } }
         if ($Stage -eq 'old-setup') {
             # 新規導入の証拠を保持し、旧版用の独立した設定を作る。
             $FreshConfig = [IO.Path]::GetFullPath((Join-Path $OutputRoot 'fresh-config'))
@@ -151,7 +151,8 @@ try {
         $ExpectedJapaneseLocale = [IO.Path]::GetFullPath((Join-Path $ProductInstall 'data/locale/ja-JP.ini'))
         $ObservedJapaneseLocale = $Result.evidence.japanese_locale_path
         if (!$ObservedJapaneseLocale -or [IO.Path]::GetFullPath($ObservedJapaneseLocale, $BinaryDir) -ne $ExpectedJapaneseLocale) { throw 'Unexpected Japanese locale path.' }
-        if ($Result.evidence.filter_registrations -ne 1 -or $Result.evidence.filter_name -ne 'Simple Pitch Shift' -or
+        $ExpectedName = if ($Stage -eq 'old-setup') { 'Simple' } else { 'Simple Pitch Shift' }
+        if ($Result.evidence.filter_registrations -ne 1 -or $Result.evidence.filter_name -ne $ExpectedName -or
             $Result.evidence.filter_settings.semitone -ne 3 -or $Result.evidence.filter_enabled -ne $true) { throw 'Filter registration, locale or settings verification failed.' }
         $SavedScene = Get-Content -LiteralPath (Join-Path $SceneDir 'Baseline.json') -Raw | ConvertFrom-Json
         $SavedSource = @($SavedScene.sources | Where-Object { $_.name -eq 'Pitch install source' })

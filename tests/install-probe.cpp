@@ -57,7 +57,8 @@ void inspect()
 	evidence.insert("locale_path", locale ? QString::fromUtf8(locale) : QString());
 	evidence.insert("japanese_locale_path", japanese_locale ? QString::fromUtf8(japanese_locale) : QString());
 	evidence.insert("filter_name", translated);
-	const bool resources = locale && japanese_locale && translated == "Simple Pitch Shift";
+	const QString expected_name = phase == "legacy-setup" ? "Simple" : "Simple Pitch Shift";
+	const bool resources = locale && japanese_locale && translated == expected_name;
 	bfree(locale);
 	bfree(japanese_locale);
 	if (!resources) {
@@ -66,7 +67,7 @@ void inspect()
 	}
 	obs_source_t *source = nullptr;
 	obs_source_t *filter = nullptr;
-	if (phase == "setup") {
+	if (phase == "setup" || phase == "legacy-setup") {
 		source = obs_source_create("pitch_install_source", source_name, nullptr, nullptr);
 		auto *settings = obs_data_create();
 		obs_data_set_int(settings, "semitone", 3);
@@ -118,7 +119,7 @@ bool obs_module_load()
 {
 	result_dir = qEnvironmentVariable("PITCH_INSTALL_RESULT_DIR");
 	phase = qEnvironmentVariable("PITCH_INSTALL_PHASE");
-	if (result_dir.isEmpty() || (phase != "setup" && phase != "restore"))
+	if (result_dir.isEmpty() || (phase != "setup" && phase != "legacy-setup" && phase != "restore"))
 		return false;
 	// 配置と設定保持だけを観測し、音声デバイスやDSP検証を起動しない。
 	obs_source_info info{};
