@@ -61,6 +61,8 @@ OBS のルート\
 
 既存のシーンや半音設定を引き継げるよう、フィルターの識別子と設定キーを維持しています。ZIP の製品フォルダーを上書きする手順を使用します。
 
+OBS Studio 33.0.1 の更新検証では、ProgramData の製品フォルダー内にある旧 `bin/64bit` の DLL を保持し、新しい配置の DLL が優先されることを確認しました。半音設定とフィルターの有効状態も引き継ぎました。
+
 OBS 本体の `obs-plugins` へ旧版を手動配置している場合は、旧版 ZIP のファイル一覧と照合し、この製品に属するファイルだけを OBS の探索対象外へバックアップしてから、新しい配置へ導入します。他のプラグインや OBS 本体のファイルを移動しないでください。
 
 ## 使い方
@@ -99,9 +101,9 @@ Signalsmith Stretch と Signalsmith Linear の固定コミットを CMake の Fe
 
 ## ライセンス
 
-本体は GPLv2 です。追加依存の Signalsmith Stretch と Signalsmith Linear は MIT ライセンスです。配布 ZIP の `data/licenses` にライセンス本文を含めます。採用コミットと確認結果を [追加依存ライセンス確認](docs/reports/2026-11-08-dependency-licenses.md) に記載しています。
+本体は GPLv2 です。追加依存の Signalsmith Stretch と Signalsmith Linear は MIT ライセンスです。配布 ZIP の `data/licenses` にライセンス本文を同梱しています。採用コミットと確認結果を [追加依存ライセンス確認](docs/reports/2026-11-08-dependency-licenses.md) に記載しています。
 
-GitHub が自動生成するソース ZIP には FetchContent の依存ソースが含まれません。v1.0.0 の公開では、固定コミットの依存ソースを含むソースアーカイブを Release に追加します。
+GitHub が自動生成するソース ZIP には FetchContent の依存ソースが含まれません。[v1.0.0 Release](https://github.com/AllegroMoltoV/obs-simple-pitchshift/releases/tag/v1.0.0) の `simple-pitchshift-1.0.0-source-with-dependencies.tar.gz` に、製品ソース、固定コミットの依存ソース、ライセンス、同梱ソースを使用するビルド案内を収録しています。
 
 ## AI 利用開示 / AI Disclosure
 
@@ -125,10 +127,13 @@ The author tested usability in OBS Studio on Windows and accepted the v1.0.0 aud
 
 ### v1.0.0
 
+2026-11-08 公開。[公開検証報告](docs/reports/2026-11-08-v100-publish.md) に配布物と公開状態を記録しています。
+
 - Signalsmith Stretch による声質保持と 40 ms の音声処理を採用しました。
 - 既存の半音設定と 0 半音でのバイパスを維持しました。
 - Windows の配置を OBS Studio 33 以降のプラグインフォルダー形式へ変更しました。
 - ロゴとライセンス同梱を更新しました。
+- 英語のフィルター名が `Simple` で途切れる表示を修正しました。
 
 ### v0.1.0
 
