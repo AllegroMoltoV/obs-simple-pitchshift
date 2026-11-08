@@ -8,7 +8,7 @@
 
 class VoicePitchShifter {
 public:
-	static constexpr std::array<int, 3> kWindowMs{10, 20, 40};
+	static constexpr std::array<int, 3> kWindowMs{20, 30, 40};
 	static constexpr int kDefaultWindowMs = 40;
 
 	VoicePitchShifter()

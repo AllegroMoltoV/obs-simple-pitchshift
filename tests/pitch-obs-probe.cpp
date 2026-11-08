@@ -290,25 +290,25 @@ bool transitions(const Wave &input, const std::filesystem::path &out, std::ostre
 	check("resumed_plus3_representative", clip, Expect::audible);
 	write_wave(out / "transition-resumed-plus3.wav", f.output.wave);
 	report << ',';
-	update(3, 0, 10);
-	check("window_40_to_10_silence", silence, Expect::exact_silence);
+	update(3, 0, 20);
+	check("window_40_to_20_silence", silence, Expect::exact_silence);
 	report << ',';
 	f.output.clear();
-	check("window_10_representative", clip, Expect::audible);
-	write_wave(out / "transition-window10-plus3.wav", f.output.wave);
+	check("window_20_representative", clip, Expect::audible);
+	write_wave(out / "transition-window20-plus3.wav", f.output.wave);
 	report << ',';
-	update(0, 0, 10);
+	update(0, 0, 20);
 	f.output.clear();
 	f.send(clip);
-	update(0, 3, 10);
+	update(0, 3, 20);
 	check("formant_zero_to_plus3_crossing", clip, Expect::audible);
 	write_wave(out / "transition-formant-plus3.wav", f.output.wave);
 	report << ',';
-	update(0, 0, 10);
+	update(0, 0, 20);
 	check("formant_plus3_to_zero_crossing", clip, Expect::exact_input);
 	report << ',';
 	// Drag the pitch slider in 0.1 steps while audio flows; values change without resets.
-	update(3, 0, 20);
+	update(3, 0, 30);
 	f.output.clear();
 	f.send(std::vector<float>(clip.begin(), clip.begin() + input.rate / 5 * 2));
 	bool drag_ok = f.output.finite;
@@ -317,7 +317,7 @@ bool transitions(const Wave &input, const std::filesystem::path &out, std::ostre
 		auto *settings = obs_data_create();
 		obs_data_set_double(settings, "semitone", 3 + step * 0.1);
 		obs_data_set_double(settings, "formant", 0);
-		obs_data_set_int(settings, "window_ms", 20);
+		obs_data_set_int(settings, "window_ms", 30);
 		obs_source_update(f.filter, settings);
 		obs_data_release(settings);
 		f.output.clear();
@@ -325,7 +325,7 @@ bool transitions(const Wave &input, const std::filesystem::path &out, std::ostre
 		f.send(part);
 		drag_sent += part.size();
 		drag_frames += f.output.wave.samples.size();
-		drag_ok &= f.output.finite && f.output.timestamps && f.output.delay == 20 * ms;
+		drag_ok &= f.output.finite && f.output.timestamps && f.output.delay == 30 * ms;
 	}
 	drag_ok &= drag_frames == drag_sent;
 	passed &= drag_ok;
@@ -549,7 +549,7 @@ bool settings_cases(const Wave &input, const std::filesystem::path &out, std::os
 		       << fields << '}';
 		first = false;
 	};
-	for (int window_ms : {10, 20, 40}) {
+	for (int window_ms : {20, 30, 40}) {
 		Fixture f(input.rate, Fixture::Options{3, window_ms});
 		uint64_t start = os_gettime_ns();
 		f.send(input.samples);

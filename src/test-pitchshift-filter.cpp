@@ -87,8 +87,8 @@ obs_properties_t *properties(void *)
 	obs_property_float_set_suffix(gain, " dB");
 	auto *window = obs_properties_add_list(props, kSettingWindow, obs_module_text("SimplePitchShiftWindow"),
 					       OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	obs_property_list_add_int(window, obs_module_text("SimplePitchShiftWindow10"), 10);
 	obs_property_list_add_int(window, obs_module_text("SimplePitchShiftWindow20"), 20);
+	obs_property_list_add_int(window, obs_module_text("SimplePitchShiftWindow30"), 30);
 	obs_property_list_add_int(window, obs_module_text("SimplePitchShiftWindow40"), 40);
 	return props;
 }
