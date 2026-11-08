@@ -103,3 +103,23 @@ if(ENABLE_PITCH_OBS_PROBE)
     target_compile_options(pitch-obs-probe PRIVATE /utf-8)
   endif()
 endif()
+
+# 配置検証用モジュールを配布物へ含めない。
+option(ENABLE_INSTALL_PROBE "Build the normal-install frontend verification module" OFF)
+if(WIN32 AND ENABLE_INSTALL_PROBE)
+  find_package(obs-frontend-api REQUIRED)
+  find_package(Qt6 REQUIRED COMPONENTS Widgets)
+  add_library(pitch-install-probe MODULE tests/install-probe.cpp)
+  target_compile_features(pitch-install-probe PRIVATE cxx_std_17)
+  target_link_libraries(pitch-install-probe PRIVATE OBS::libobs OBS::obs-frontend-api Qt6::Widgets)
+  if(MSVC)
+    target_compile_options(pitch-install-probe PRIVATE /utf-8)
+  endif()
+  set_target_properties(
+    pitch-install-probe
+    PROPERTIES
+      PREFIX ""
+      LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/install-probe"
+      RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/install-probe"
+  )
+endif()

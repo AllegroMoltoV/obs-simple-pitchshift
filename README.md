@@ -1,108 +1,135 @@
-# Simple Pitch Shift (OBS Audio Filter Plugin)
+# Simple Pitch Shift
 
-OBS Studio 向けの **シンプルなピッチシフト音声フィルタ**です。
-プロパティ UI の **半音スライダー（-12..+12）** を操作して、音声のピッチを変更できます。
+![Simple Pitch Shift のロゴ](docs/images/logo.png)
 
-> 低遅延を優先した実装のため、音質よりもリアルタイム性を重視しています。
+OBS Studio 向けのピッチシフト音声フィルターです。半音スライダーを操作して、話し声や歌声の高さを変更できます。Signalsmith Stretch による声質保持を有効にし、元の声の特徴を保ちながらリアルタイムで処理します。
 
----
+## 機能
 
-## Features / できること
+- 音声フィルター「シンプルピッチシフト / Simple Pitch Shift」を追加できます。
+- 半音を整数の `-12` から `+12` まで変更できます。初期値の `0` では音声を加工しません。
+- 44.1 kHz と 48 kHz のステレオ音声に対応します。
+- 処理窓 40 ms、更新間隔 10 ms の固定設定を使用します。声質補正の基音概算は 180 Hz 固定です。
 
-- 音声フィルタ「**シンプルピッチシフト / Simple Pitch Shift**」を追加できる
-- プロパティで **半音（Semitone）** を `-12..+12` の範囲で変更できる
-- **44.1 kHz** と **48 kHz** の両方のサンプルレートに対応
-- 低遅延（約 8.7ms）でリアルタイム処理
+## 動作環境
 
----
+- Windows 11 x64
+- OBS Studio 33 以降。実機検証に使用した版は 33.0.1 です。
+- サンプルレート 44.1 kHz または 48 kHz、2 チャンネルのステレオ音声
 
-## Requirements / 動作環境
+Windows 向けに ZIP を配布します。macOS と Linux のビルドは CI で成功しています。両 OS の実機動作は未確認です。
 
-- Windows 11（x64）
-- OBS Studio 32.x 系
-- サンプルレート: **44.1 kHz** または **48 kHz**
-- チャンネル: **2ch（ステレオ）**
+OBS Studio 32 以前を使用する場合は、従来の配置形式の [v0.1.0](https://github.com/AllegroMoltoV/obs-simple-pitchshift/releases/tag/v0.1.0) を参照してください。旧 OBS の全バージョンでの動作を保証する案内ではありません。
 
----
+## インストールと更新
 
-## Install / インストール（手動）
+### 通常版の OBS Studio
 
-1. GitHub Releases から zip をダウンロードして展開します。
-2. 展開した **プラグインフォルダーごと**、次の場所へコピーします。
+1. OBS Studio を終了します。
+2. [GitHub Releases](https://github.com/AllegroMoltoV/obs-simple-pitchshift/releases) から Windows 用 ZIP をダウンロードして展開します。
+3. エクスプローラーのアドレス欄に `%PROGRAMDATA%` を入力して開きます。この方法で隠しフォルダーを表示できます。
+4. `obs-studio` フォルダーと、その中の `plugins` フォルダーを開きます。存在しないフォルダーを作成します。
+5. 展開した `simple-pitchshift` フォルダーごと `plugins` へコピーします。更新時も同じ場所へ上書きします。Windows が管理者の許可を求めた場合は、内容を確認して許可します。
+6. OBS Studio を起動します。
 
-- `%PROGRAMDATA%\obs-studio\plugins`
+配置後の構成は次のとおりです。`simple-pitchshift` を二重に入れ子にしないでください。
 
-展開後のパス例:
+```text
+%PROGRAMDATA%\obs-studio\plugins\simple-pitchshift\
+  simple-pitchshift.dll
+  data\
+    locale\
+    licenses\
+```
 
-- `%PROGRAMDATA%\obs-studio\plugins\simple-pitchshift\bin\64bit\simple-pitchshift.dll`
-- `%PROGRAMDATA%\obs-studio\plugins\simple-pitchshift\data\locale\...`
+### ポータブル版の OBS Studio
 
-3. OBS Studio を再起動します。
+OBS Studio を終了し、ZIP 内の `simple-pitchshift` フォルダーを OBS 本体のルートにある `plugins` へコピーします。`plugins` がなければ作成します。通常版の導入先と異なります。
 
-> すでに同名フォルダーが存在する場合は、一度削除してから展開してください。
+```text
+OBS のルート\
+  bin\
+  plugins\
+    simple-pitchshift\
+      simple-pitchshift.dll
+      data\
+        locale\
+        licenses\
+```
 
----
+### 旧版からの更新
 
-## Usage / 使い方
+既存のシーンや半音設定を引き継げるよう、フィルターの識別子と設定キーを維持しています。ZIP の製品フォルダーを上書きする手順を使用します。
 
-1. 任意の音声付きソースを選択
-2. 「フィルタ」→「音声フィルタ」で **シンプルピッチシフト / Simple Pitch Shift** を追加
-3. プロパティの **半音（Semitone）** スライダーを操作
+OBS 本体の `obs-plugins` へ旧版を手動配置している場合は、旧版 ZIP のファイル一覧と照合し、この製品に属するファイルだけを OBS の探索対象外へバックアップしてから、新しい配置へ導入します。他のプラグインや OBS 本体のファイルを移動しないでください。
 
----
+## 使い方
 
-## Notes / 注意点
+1. 音声付きソースの「フィルタ」を開きます。
+2. 音声フィルターに「シンプルピッチシフト / Simple Pitch Shift」を追加します。
+3. 「半音 / Semitone」スライダーで音声の高さを変更します。
 
-- OBS の音声設定が **44.1 kHz / 48 kHz 以外**の場合は **バイパス**します。
-- **2ch 以外**の構成は想定外です（バイパスします）。
-- 低遅延優先のため、クリックやアーティファクトが発生する場合があります。
+## 音質と遅延
 
----
+音声処理自体の遅延は 40 ms です。OBS のバッファー、音声デバイス、モニタリング経路で生じる遅延を含みません。マイク入力から耳に届くまでの遅延を 40 ms と保証する値ではありません。
 
-## Build / ビルド（開発者向け）
+0 半音ではピッチ処理をバイパスし、この処理による遅延を加えません。対応外のサンプルレートやチャンネル構成でも音声を加工せず通過させます。半音の変更や再有効化時に処理履歴を初期化するため、短い立ち上がりが生じます。変換量や素材によって音質が変わるため、配信前に実際の音声で確認してください。
 
-このリポジトリは `obs-plugintemplate` ベースです。
-Windows + Visual Studio 2022 を前提とした開発フローになっています。
+作者が Windows 上の通常の OBS Studio で使用感を確認しています。検証条件と測定の限界を [統合検証報告](docs/reports/2026-11-08-pitch-integration.md) に記載しています。
 
-### 1) Configure（CMake generate）
+## ビルド
 
-```bash
+[OBS Plugin Template](https://github.com/obsproject/obs-plugintemplate) を基にしています。Windows の開発には Visual Studio 2022 と CMake 3.28 以降を使用します。
+
+構成を生成します。
+
+```powershell
 cmake --preset windows-x64
 ```
 
-### 2) Build
+`build_x64` 内のソリューションを Visual Studio で開き、`RelWithDebInfo` 構成でビルドします。ビルド後の OBS への自動導入を無効にしています。
 
-生成された `build_x64/*.sln` を Visual Studio で開き、`Release` / `RelWithDebInfo` などでビルドします。
+配布用のファイルを `dist` へ配置します。
 
-### 3) Install（ローカル配置）
-
-```bash
-cmake --install build_x64 --config Release
+```powershell
+cmake --install build_x64 --config RelWithDebInfo --prefix dist
 ```
 
-配布用にまとめる場合:
+Signalsmith Stretch と Signalsmith Linear の固定コミットを CMake の FetchContent で取得します。初回構成時に依存ソースの取得が必要です。
 
-```bash
-cmake --install build_x64 --config Release --prefix dist
-```
+## ライセンス
 
----
+本体は GPLv2 です。追加依存の Signalsmith Stretch と Signalsmith Linear は MIT ライセンスです。配布 ZIP の `data/licenses` にライセンス本文を含めます。採用コミットと確認結果を [追加依存ライセンス確認](docs/reports/2026-11-08-dependency-licenses.md) に記載しています。
 
-## AI利用開示 / AI Disclosure
+GitHub が自動生成するソース ZIP には FetchContent の依存ソースが含まれません。v1.0.0 の公開では、固定コミットの依存ソースを含むソースアーカイブを Release に追加します。
+
+## AI 利用開示 / AI Disclosure
 
 ### 日本語
 
-v0.1.0までの制作では、Anthropic Claude Codeをソースコード、ビルド設定、テスト、文書を含むほぼすべての工程で使用しました。v0.1.0のコード制作にOpenAI Codexは使用していません。Codexは、今回のOBS Forumポリシー調査と、プロジェクトREADMEおよびOBS Forum掲載文に追加するAI利用開示の作成・改稿に使用しています。
+v0.1.0 までの制作では、Anthropic Claude Code をソースコード、ビルド設定、テスト、文書を含むほぼすべての工程で使用しました。v0.1.0 のコード制作に OpenAI Codex は使用していません。
 
-作者本人はWindows上のOBS Studioでユーザーテストを実施しました。コード読解による厳密な人間レビューは実施していません。リソースアイコンはClaude Codeが出力したSVGから作成しました。概要説明欄でGIFは使用していません。
+v1.0.0 の制作では、OpenAI Codex を音声処理の調査・統合、ビルドと配布設定、検証、文書、公開準備に使用しました。現在のロゴは Codex が生成した SVG から作成しています。従来のリソースアイコンは Claude Code が生成した SVG から作成しました。
+
+作者本人が Windows 上の OBS Studio で使用感を確認し、v1.0.0 の音声処理を採用しました。コード読解による厳密な人間レビューは実施していません。概要説明欄で GIF は使用していません。
 
 ### English
 
-Anthropic Claude Code was used for almost the entire development process through v0.1.0, including source code, build configuration, tests, and documentation. OpenAI Codex was not used to develop the v0.1.0 code. Codex was used for the current OBS Forum policy research and to draft and revise the AI disclosure added to the project README and OBS Forum resource description.
+Anthropic Claude Code was used for almost the entire development process through v0.1.0, including source code, build configuration, tests, and documentation. OpenAI Codex was not used to develop the v0.1.0 code.
 
-The author performed user testing in OBS Studio on Windows but did not perform a rigorous human review of the source code. The resource icon was created from an SVG generated by Claude Code. No GIF is used in the resource description.
+For v1.0.0, OpenAI Codex was used for audio-processing research and integration, build and packaging configuration, verification, documentation, and release preparation. The current logo was created from an SVG generated by Codex. The previous resource icon was created from an SVG generated by Claude Code.
 
-## Links
+The author tested usability in OBS Studio on Windows and accepted the v1.0.0 audio processing. A rigorous human source-code review has not been performed. No GIF is used in the resource description.
 
-* OBS Plugin Template: [https://github.com/obsproject/obs-plugintemplate](https://github.com/obsproject/obs-plugintemplate)
-* OBS Docs: [https://docs.obsproject.com/](https://docs.obsproject.com/)
+## 更新情報
+
+### v1.0.0
+
+- Signalsmith Stretch による声質保持と 40 ms の音声処理を採用しました。
+- 既存の半音設定と 0 半音でのバイパスを維持しました。
+- Windows の配置を OBS Studio 33 以降のプラグインフォルダー形式へ変更しました。
+- ロゴとライセンス同梱を更新しました。
+
+### v0.1.0
+
+従来のピッチシフト処理と Windows 配置形式を使用する旧版です。[旧版 Release](https://github.com/AllegroMoltoV/obs-simple-pitchshift/releases/tag/v0.1.0) を保持しています。
