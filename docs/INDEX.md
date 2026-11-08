@@ -1,5 +1,6 @@
 # 文書索引
 
+- [v1.1.0 の検証](reports/2026-11-08-v110-verification.md)
 - [v1.1.0 の事前調査](reports/2026-11-08-v110-investigation.md)
 - [v1.0.0 の公開検証](reports/2026-11-08-v100-publish.md)
 - [v1.0.0 のピッチシフト統合検証](reports/2026-11-08-pitch-integration.md)
