@@ -129,12 +129,28 @@ struct Fixture {
 	obs_source_t *source = nullptr, *filter = nullptr;
 	Capture output;
 	uint64_t frame = 0, base = os_gettime_ns();
-	Fixture(uint32_t rate, int semitone)
+	struct Options {
+		double semitone = 0;
+		int window_ms = 0; // 0 leaves the key unset so the filter default applies.
+		double formant = 0, gain_db = 0;
+		bool legacy_int_semitone = false; // v1.0.0 saved semitone as an integer.
+	};
+	Fixture(uint32_t rate, double semitone) : Fixture(rate, Options{semitone}) {}
+	Fixture(uint32_t rate, const Options &o)
 	{
 		output.wave.rate = rate;
 		source = obs_source_create_private("pitch_probe_input", "isolated probe", nullptr);
 		auto *settings = obs_data_create();
-		obs_data_set_int(settings, "semitone", semitone);
+		if (o.legacy_int_semitone)
+			obs_data_set_int(settings, "semitone", int(o.semitone));
+		else
+			obs_data_set_double(settings, "semitone", o.semitone);
+		if (o.window_ms)
+			obs_data_set_int(settings, "window_ms", o.window_ms);
+		if (!o.legacy_int_semitone) {
+			obs_data_set_double(settings, "formant", o.formant);
+			obs_data_set_double(settings, "gain", o.gain_db);
+		}
 		filter = obs_source_create_private("simple_pitchshift_filter", "pitch", settings);
 		obs_data_release(settings);
 		if (!source || !filter)
@@ -213,47 +229,108 @@ bool transitions(const Wave &input, const std::filesystem::path &out, std::ostre
 	f.send(clip);
 	const uint64_t shifted_delay = f.output.delay;
 	bool passed = f.output.finite && f.output.timestamps && shifted_delay > 0 && shifted_delay != UINT64_MAX;
-	auto update = [&](int semitone) {
+	const uint64_t ms = 1000000;
+	double semitone = 3, formant = 0;
+	int window_ms = 40;
+	auto update = [&](double new_semitone, double new_formant, int new_window_ms) {
+		semitone = new_semitone;
+		formant = new_formant;
+		window_ms = new_window_ms;
 		auto *settings = obs_data_create();
-		obs_data_set_int(settings, "semitone", semitone);
+		obs_data_set_double(settings, "semitone", semitone);
+		obs_data_set_double(settings, "formant", formant);
+		obs_data_set_int(settings, "window_ms", window_ms);
 		obs_source_update(f.filter, settings);
 		obs_data_release(settings);
 		f.output.clear();
 	};
-	auto check = [&](const char *stage, int semitone, const std::vector<float> &samples, bool exact) {
+	// silence: "exact" requires bit-exact silence (a reset or bypass), "tail" allows in-flight audio to finish
+	// within the first half and requires silence afterwards (a parameter change without reset).
+	enum class Expect { exact_input, exact_silence, tail_then_silence, audible };
+	auto check = [&](const char *stage, const std::vector<float> &samples, Expect expect) {
 		f.send(samples);
 		auto *settings = obs_source_get_settings(f.filter);
-		bool retained = obs_data_get_int(settings, "semitone") == semitone;
+		bool retained = obs_data_get_double(settings, "semitone") == semitone &&
+				obs_data_get_double(settings, "formant") == formant &&
+				obs_data_get_int(settings, "window_ms") == window_ms;
 		obs_data_release(settings);
-		bool full = f.output.wave.samples.size() == samples.size();
-		bool matched = !exact || f.output.wave.samples == samples;
-		bool timing = f.output.timestamps && f.output.delay == (semitone == 0 ? 0 : shifted_delay);
-		bool audible = exact || rms(f.output.wave.samples) > 0;
-		bool ok = f.output.finite && full && matched && timing && retained && audible;
+		const auto &got = f.output.wave.samples;
+		bool full = got.size() == samples.size();
+		bool matched = true;
+		if (expect == Expect::exact_input || expect == Expect::exact_silence)
+			matched = got == samples;
+		if (expect == Expect::tail_then_silence)
+			matched = full && peak(std::vector<float>(got.begin() + got.size() / 2, got.end())) == 0;
+		if (expect == Expect::audible)
+			matched = rms(got) > 0;
+		bool bypass = semitone == 0 && formant == 0;
+		bool timing = f.output.timestamps && f.output.delay == (bypass ? 0 : uint64_t(window_ms) * ms);
+		bool ok = f.output.finite && full && matched && timing && retained;
 		passed &= ok;
-		report << "{\"stage\":\"" << stage << "\",\"semitone\":" << semitone
-		       << ",\"passed\":" << (ok ? "true" : "false") << ",\"finite\":" << f.output.finite
-		       << ",\"all_frames\":" << full << ",\"exact_match\":" << matched
-		       << ",\"timestamp_delay_ns\":" << f.output.delay << ",\"timestamp_expected\":" << timing
-		       << ",\"settings_updated\":" << retained << ",\"peak\":" << peak(f.output.wave.samples) << '}';
+		report << "{\"stage\":\"" << stage << "\",\"semitone\":" << semitone << ",\"formant\":" << formant
+		       << ",\"window_ms\":" << window_ms << ",\"passed\":" << (ok ? "true" : "false")
+		       << ",\"finite\":" << f.output.finite << ",\"all_frames\":" << full
+		       << ",\"expected_content\":" << matched << ",\"timestamp_delay_ns\":" << f.output.delay
+		       << ",\"timestamp_expected\":" << timing << ",\"settings_updated\":" << retained
+		       << ",\"peak\":" << peak(got) << '}';
 	};
 	report << '[';
-	update(-3);
-	check("plus3_to_minus3_silence", -3, silence, true);
+	update(-3, 0, 40);
+	check("plus3_to_minus3_no_reset_silence", silence, Expect::tail_then_silence);
+	report << ',';
 	f.output.clear();
 	f.send(clip);
-	passed &= f.output.finite && f.output.timestamps && f.output.delay == shifted_delay &&
-		  f.output.wave.samples.size() == clip.size();
+	update(0, 0, 40);
+	check("minus3_to_zero_representative", clip, Expect::exact_input);
 	report << ',';
-	update(0);
-	check("minus3_to_zero_representative", 0, clip, true);
-	report << ',';
-	update(3);
-	check("zero_to_plus3_silence", 3, silence, true);
+	update(3, 0, 40);
+	check("zero_to_plus3_silence", silence, Expect::exact_silence);
 	report << ',';
 	f.output.clear();
-	check("resumed_plus3_representative", 3, clip, false);
+	check("resumed_plus3_representative", clip, Expect::audible);
 	write_wave(out / "transition-resumed-plus3.wav", f.output.wave);
+	report << ',';
+	update(3, 0, 20);
+	check("window_40_to_20_silence", silence, Expect::exact_silence);
+	report << ',';
+	f.output.clear();
+	check("window_20_representative", clip, Expect::audible);
+	write_wave(out / "transition-window20-plus3.wav", f.output.wave);
+	report << ',';
+	update(0, 0, 20);
+	f.output.clear();
+	f.send(clip);
+	update(0, 3, 20);
+	check("formant_zero_to_plus3_crossing", clip, Expect::audible);
+	write_wave(out / "transition-formant-plus3.wav", f.output.wave);
+	report << ',';
+	update(0, 0, 20);
+	check("formant_plus3_to_zero_crossing", clip, Expect::exact_input);
+	report << ',';
+	// Drag the pitch slider in 0.1 steps while audio flows; values change without resets.
+	update(3, 0, 30);
+	f.output.clear();
+	f.send(std::vector<float>(clip.begin(), clip.begin() + input.rate / 5 * 2));
+	bool drag_ok = f.output.finite;
+	size_t drag_frames = 0, drag_sent = 0;
+	for (int step = 1; step <= 20; ++step) {
+		auto *settings = obs_data_create();
+		obs_data_set_double(settings, "semitone", 3 + step * 0.1);
+		obs_data_set_double(settings, "formant", 0);
+		obs_data_set_int(settings, "window_ms", 30);
+		obs_source_update(f.filter, settings);
+		obs_data_release(settings);
+		f.output.clear();
+		std::vector<float> part(clip.begin() + (step - 1) * 1024 * 2, clip.begin() + step * 1024 * 2);
+		f.send(part);
+		drag_sent += part.size();
+		drag_frames += f.output.wave.samples.size();
+		drag_ok &= f.output.finite && f.output.timestamps && f.output.delay == 30 * ms;
+	}
+	drag_ok &= drag_frames == drag_sent;
+	passed &= drag_ok;
+	report << "{\"stage\":\"semitone_drag_3_to_5_step_0.1\",\"passed\":" << (drag_ok ? "true" : "false")
+	       << ",\"all_frames\":" << (drag_frames == drag_sent) << '}';
 	report << ']';
 	return passed;
 }
@@ -440,6 +517,124 @@ bool final_mix(const Wave &input, const std::filesystem::path &out, bool restore
 	       << ",\"note\":\"Wall delta is first active input block submission to first active final-mix callback; includes block quantization and OBS buffering, excludes audio device. No video content or AV sync assertion.\"}\n";
 	return passed;
 }
+// Saves the source with its filter and returns the filter settings loaded back from that save.
+obs_data_t *restored_settings(obs_source_t *source)
+{
+	auto *saved = obs_save_source(source);
+	auto *restored = obs_load_source(saved);
+	obs_data_release(saved);
+	auto *filter = restored ? obs_source_get_filter_by_name(restored, "pitch") : nullptr;
+	auto *settings = filter ? obs_source_get_settings(filter) : nullptr;
+	obs_source_release(filter);
+	obs_source_release(restored);
+	return settings;
+}
+double max_scaled_error(const std::vector<float> &got, const std::vector<float> &reference, double scale)
+{
+	if (got.size() != reference.size())
+		return INFINITY;
+	double error = 0;
+	for (size_t i = 0; i < got.size(); ++i)
+		error = std::max(error, std::abs(double(got[i]) - scale * reference[i]));
+	return error;
+}
+bool settings_cases(const Wave &input, const std::filesystem::path &out, std::ostream &report)
+{
+	const uint64_t ms = 1000000;
+	const double input_seconds = double(input.samples.size() / 2) / input.rate;
+	bool passed = true, first = true;
+	auto emit = [&](const std::string &name, bool ok, const std::string &fields) {
+		passed &= ok;
+		report << (first ? "" : ",") << "{\"case\":\"" << name << "\",\"passed\":" << (ok ? "true" : "false")
+		       << fields << '}';
+		first = false;
+	};
+	for (int window_ms : {20, 30, 40}) {
+		Fixture f(input.rate, Fixture::Options{3, window_ms});
+		uint64_t start = os_gettime_ns();
+		f.send(input.samples);
+		double realtime_factor = double(os_gettime_ns() - start) / 1e9 / input_seconds;
+		auto *settings = restored_settings(f.source);
+		bool retained = settings && obs_data_get_int(settings, "window_ms") == window_ms;
+		obs_data_release(settings);
+		bool full = f.output.wave.samples.size() == input.samples.size();
+		bool timing = f.output.timestamps && f.output.delay == uint64_t(window_ms) * ms;
+		write_wave(out / ("window-" + std::to_string(window_ms) + "-plus3.wav"), f.output.wave);
+		emit("window_" + std::to_string(window_ms) + "_plus3",
+		     f.output.finite && full && timing && retained && rms(f.output.wave.samples) > 0,
+		     ",\"timestamp_delay_ns\":" + std::to_string(f.output.delay) +
+			     ",\"settings_restored\":" + std::to_string(retained) +
+			     ",\"send_seconds_per_input_second\":" + std::to_string(realtime_factor));
+	}
+	{
+		Fixture::Options legacy{3};
+		legacy.legacy_int_semitone = true;
+		Fixture f(input.rate, legacy);
+		f.send(input.samples);
+		auto *settings = obs_source_get_settings(f.filter);
+		bool read = obs_data_get_double(settings, "semitone") == 3 &&
+			    obs_data_get_int(settings, "window_ms") == 40 &&
+			    obs_data_get_double(settings, "formant") == 0 && obs_data_get_double(settings, "gain") == 0;
+		obs_data_release(settings);
+		bool timing = f.output.timestamps && f.output.delay == 40 * ms;
+		emit("v100_integer_semitone_settings", f.output.finite && read && timing,
+		     ",\"defaults_and_value_read\":" + std::to_string(read) +
+			     ",\"timestamp_delay_ns\":" + std::to_string(f.output.delay));
+	}
+	{
+		Fixture f(input.rate, 2.5);
+		f.send(tone(input.rate));
+		double hz = frequency(f.output.wave);
+		double cents = hz > 0 ? 1200 * std::log2(hz / (220 * std::pow(2.0, 2.5 / 12.0))) : 0;
+		auto *settings = restored_settings(f.source);
+		bool retained = settings && obs_data_get_double(settings, "semitone") == 2.5;
+		obs_data_release(settings);
+		emit("fractional_semitone_2_5", f.output.finite && retained && hz > 0,
+		     ",\"settings_restored\":" + std::to_string(retained) + ",\"tone_hz\":" + std::to_string(hz) +
+			     ",\"tone_error_cents\":" + std::to_string(cents));
+	}
+	{
+		Fixture::Options o{0, 40, 3};
+		Fixture f(input.rate, o);
+		f.send(input.samples);
+		auto *settings = restored_settings(f.source);
+		bool retained = settings && obs_data_get_double(settings, "formant") == 3;
+		obs_data_release(settings);
+		bool processed = f.output.wave.samples != input.samples && rms(f.output.wave.samples) > 0;
+		bool timing = f.output.timestamps && f.output.delay == 40 * ms;
+		write_wave(out / "formant-plus3-pitch0.wav", f.output.wave);
+		emit("formant_plus3_at_semitone_0", f.output.finite && processed && timing && retained,
+		     ",\"processed\":" + std::to_string(processed) + ",\"settings_restored\":" +
+			     std::to_string(retained) + ",\"timestamp_delay_ns\":" + std::to_string(f.output.delay));
+	}
+	const double six_db = 20 * std::log10(2.0);
+	for (double gain_db : {six_db, -six_db}) {
+		Fixture::Options o{0};
+		o.gain_db = gain_db;
+		Fixture f(input.rate, o);
+		f.send(input.samples);
+		double error = max_scaled_error(f.output.wave.samples, input.samples, std::pow(10.0, gain_db / 20));
+		auto *settings = restored_settings(f.source);
+		bool retained = settings && obs_data_get_double(settings, "gain") == gain_db;
+		obs_data_release(settings);
+		bool timing = f.output.timestamps && f.output.delay == 0;
+		emit(gain_db > 0 ? "gain_plus6db_bypass" : "gain_minus6db_bypass",
+		     f.output.finite && error < 1e-5 && timing && retained,
+		     ",\"max_error\":" + std::to_string(error) + ",\"settings_restored\":" + std::to_string(retained));
+	}
+	{
+		Fixture plain(input.rate, 3.0);
+		plain.send(input.samples);
+		Fixture::Options o{3};
+		o.gain_db = six_db;
+		Fixture gained(input.rate, o);
+		gained.send(input.samples);
+		double error = max_scaled_error(gained.output.wave.samples, plain.output.wave.samples, 2.0);
+		emit("gain_plus6db_after_pitch", gained.output.finite && error < 1e-4,
+		     ",\"max_error_vs_twice_ungained\":" + std::to_string(error));
+	}
+	return passed;
+}
 } // namespace
 int main(int argc, char **argv)
 {
@@ -507,7 +702,7 @@ int main(int argc, char **argv)
 				auto *restored_filter = restored ? obs_source_get_filter_by_name(restored, "pitch")
 								 : nullptr;
 				auto *settings = restored_filter ? obs_source_get_settings(restored_filter) : nullptr;
-				bool retained = settings && obs_data_get_int(settings, "semitone") == semitone;
+				bool retained = settings && obs_data_get_double(settings, "semitone") == semitone;
 				obs_data_release(settings);
 				obs_source_release(restored_filter);
 				obs_source_release(restored);
@@ -546,6 +741,10 @@ int main(int argc, char **argv)
 				       << ",\"reenable_silence_peak\":" << stale_peak << ",\"tone_hz\":" << hz
 				       << ",\"tone_error_cents\":" << cents << '}';
 			}
+		if (argc == 5) {
+			report << "],\"settings\":[";
+			passed &= settings_cases(input, out, report);
+		}
 		report << "],\"transitions\":";
 		passed &= transitions(input, out, report);
 		report << ",\"passed\":" << (passed ? "true" : "false")
