@@ -1,6 +1,6 @@
 # Simple Pitch Shift
 
-![Simple Pitch Shift のロゴ](docs/images/logo.png)
+![OBS Studio のフィルタ画面に表示したシンプルピッチシフトの設定項目](docs/images/filter-settings.png)
 
 OBS Studio 向けのピッチシフト音声フィルターです。スライダーを操作して、話し声や歌声の高さ、声質、音量を変更できます。Signalsmith Stretch による声質保持を有効にし、元の声の特徴を保ちながらリアルタイムで処理します。
 
@@ -75,6 +75,8 @@ OBS 本体の `obs-plugins` へ旧版を手動配置している場合は、旧�
 3. 「半音 / Semitone」スライダーで音声の高さを変更します。
 4. 必要に応じて「フォルマント / Formant」で声質を、「ゲイン / Gain」で音量を調整します。
 5. 遅延を小さくしたい場合は「処理窓 / Processing window」で 30 ms または 20 ms を選びます。
+
+![OBS Studio のフィルタ画面に表示したシンプルピッチシフトの設定項目](docs/images/filter-settings.png)
 
 ## 音質と遅延
 
