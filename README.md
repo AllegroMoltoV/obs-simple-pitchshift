@@ -138,6 +138,12 @@ The author tested usability in OBS Studio on Windows and accepted the v1.0.0 and
 
 ## 更新情報
 
+### v1.1.1
+
+2026-11-09 公開。
+
+- 配信プラグイン倉庫くん (https://soko-kun.allegromoltov.jp) に表示するロゴと説明の画像を、`.soko-kun/` に追加しました。音声処理の変更はありません。
+
 ### v1.1.0
 
 2026-11-08 公開。[公開検証報告](docs/reports/2026-11-08-v110-verification.md) に検証結果と配布物を記録しています。
