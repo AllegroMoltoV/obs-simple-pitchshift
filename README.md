@@ -4,6 +4,8 @@
 
 OBS Studio 向けのピッチシフト音声フィルターです。スライダーを操作して、話し声や歌声の高さ、声質、音量を変更できます。Signalsmith Stretch による声質保持を有効にし、元の声の特徴を保ちながらリアルタイムで処理します。
 
+[配信プラグイン倉庫くん](https://soko-kun.allegromoltov.jp/plugins/allegromoltov/obs-simple-pitchshift) にも掲載しています。 / Also listed on [Plugin Soko-kun](https://soko-kun.allegromoltov.jp/plugins/allegromoltov/obs-simple-pitchshift?lang=en).
+
 ## 機能
 
 - 音声フィルター「シンプルピッチシフト / Simple Pitch Shift」を追加できます。
