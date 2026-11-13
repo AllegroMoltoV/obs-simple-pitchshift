@@ -140,6 +140,11 @@ The author tested usability in OBS Studio on Windows and accepted the v1.0.0 and
 
 ## 更新情報
 
+### v1.1.2
+
+- リリースの配布物にビルドの来歴の証明 (GitHub Artifact Attestation) を付けるようにしました。プラグインの動作は v1.1.1 と同じです。
+- 依存ライブラリのソースを含めたアーカイブも CI で作り、同じく証明を付けるようにしました。
+
 ### v1.1.1
 
 2026-11-09 公開。
