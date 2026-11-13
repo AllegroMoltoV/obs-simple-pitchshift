@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# 製品のソースと、FetchContent で取得する依存ライブラリの固定コミットのソースをまとめた
+# <name>-<version>-source-with-dependencies.tar.gz を作る。
+# 使い方: make-source-archive <製品のリポジトリの作業ツリー> <出力先のディレクトリ>
+# 依存ライブラリの取得元と固定コミットは CMakeLists.txt の FetchContent_Declare から読む。
+set -euo pipefail
+
+src_dir="$(cd "$1" && pwd)"
+out_dir="$(mkdir -p "$2" && cd "$2" && pwd)"
+
+name="$(jq -r '.name' "${src_dir}/buildspec.json")"
+version="$(jq -r '.version' "${src_dir}/buildspec.json")"
+revision="$(git -C "${src_dir}" rev-parse HEAD)"
+prefix="${name}-${version}-source-with-dependencies"
+
+work="$(mktemp -d)"
+trap 'rm -rf "${work}"' EXIT
+stage="${work}/${prefix}"
+mkdir -p "${stage}"
+
+# 製品のソースは、追跡されたファイルだけを git archive で取り出す
+git -C "${src_dir}" archive --format=tar HEAD | tar -x -C "${stage}"
+
+declare -a dep_json=()
+fetch_dep() {
+  local dep_name="$1" repo url tag
+  url="$(awk -v n="${dep_name}" '$1 == n {f=1} f && $1 == "GIT_REPOSITORY" {print $2; exit}' "${src_dir}/CMakeLists.txt")"
+  tag="$(awk -v n="${dep_name}" '$1 == n {f=1} f && $1 == "GIT_TAG" {print $2; exit}' "${src_dir}/CMakeLists.txt")"
+  if [[ -z "${url}" || -z "${tag}" ]]; then
+    echo "CMakeLists.txt に ${dep_name} の GIT_REPOSITORY か GIT_TAG がありません" >&2
+    exit 1
+  fi
+  repo="${work}/repo-${dep_name}"
+  git init -q "${repo}"
+  git -C "${repo}" fetch -q --depth 1 "${url}" "${tag}"
+  mkdir -p "${stage}/third-party/${dep_name}"
+  git -C "${repo}" archive --format=tar FETCH_HEAD | tar -x -C "${stage}/third-party/${dep_name}"
+  dep_json+=("$(jq -n --arg name "${dep_name}" --arg rev "${tag}" --arg src "${url}" --arg path "third-party/${dep_name}" \
+    '{name: $name, revision: $rev, source: $src, license: "MIT", path: $path}')")
+}
+
+fetch_dep signalsmith-stretch
+fetch_dep signalsmith-linear
+
+# Stretch の cmd/util サブモジュールは製品で使わないため含めない。除外したコミットを記録する
+util_rev="$(git -C "${work}/repo-signalsmith-stretch" ls-tree FETCH_HEAD cmd/util | awk '{print $3}')"
+
+jq -n \
+  --arg name "${name}" --arg version "${version}" --arg revision "${revision}" \
+  --arg source "https://github.com/${GITHUB_REPOSITORY:-AllegroMoltoV/obs-simple-pitchshift}.git" \
+  --arg util_rev "${util_rev}" \
+  --argjson deps "$(printf '%s\n' "${dep_json[@]}" | jq -s '.')" \
+  '{product: {name: $name, version: $version, revision: $revision, source: $source},
+    dependencies: $deps,
+    source_selection: "git archive of listed commits; no working-tree or untracked files",
+    excluded_submodule: ("signalsmith-stretch/cmd/util at " + $util_rev + ": upstream CLI example only; not used by product CMake; GIT_SUBMODULES is empty")}' \
+  > "${stage}/SOURCE-MANIFEST.json"
+
+cp "${src_dir}/.github/source-archive/BUILDING-SOURCE.md" "${stage}/BUILDING-SOURCE.md"
+
+tar -C "${work}" -czf "${out_dir}/${prefix}.tar.gz" "${prefix}"
+echo "${out_dir}/${prefix}.tar.gz"
